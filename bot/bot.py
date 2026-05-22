@@ -44,6 +44,14 @@ if _cookies_env:
             _f.write(base64.b64decode(_cookies_env))
     except Exception:
         pass
+        _youtube_cookies = os.environ.get("YOUTUBE_COOKIES")
+
+if _youtube_cookies:
+    try:
+        with open("youtube_cookies.txt", "w") as f:
+            f.write(_youtube_cookies)
+    except Exception:
+        pass
 MAX_RETRIES = 3
 
 CHROME_USER_AGENT = (
