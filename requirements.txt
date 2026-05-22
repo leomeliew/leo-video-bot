@@ -1,3 +1,4 @@
 python-telegram-bot==21.5
-yt-dlp
+yt-dlp>=2024.1.1
 ffmpeg-python
+requests
