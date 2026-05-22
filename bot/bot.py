@@ -42,11 +42,7 @@ CHROME_USER_AGENT = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-TIKTOK_USER_AGENT = (
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/16.6 Mobile/15E148 Safari/604.1"
-)
+TIKTOK_USER_AGENT = "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
 
 STRINGS = {
     "en": {
@@ -249,7 +245,7 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
         "http_headers": {"User-Agent": CHROME_USER_AGENT},
     }
 
-    if platform == "tiktok":
+    if platform in ("tiktok", "instagram"):
         base["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
 
     if fmt == "mp3":
@@ -269,44 +265,27 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
                 "preferredcodec": "vorbis",
             }],
         })
+    elif platform in ("tiktok", "instagram"):
+        base.update({"format": "best[ext=mp4]/best", "merge_output_format": "mp4"})
     else:
         height_map = {"360": 360, "720": 720, "1080": 1080}
-
-        if platform == "youtube":
-            if quality in height_map:
-                h = height_map[quality]
-                fmt_str = (
-                    f"best[ext=mp4][height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best[height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best[height<={h}]"
-                    f"/best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best"
-                )
-            else:
-                fmt_str = (
-                    f"best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
-                    f"/best"
-                )
-            base.update({"format": fmt_str, "merge_output_format": "mp4"})
-
+        if quality in height_map:
+            h = height_map[quality]
+            fmt_str = (
+                f"best[ext=mp4][height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best[height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best[height<={h}]"
+                f"/best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best"
+            )
         else:
-            if quality in height_map:
-                h = height_map[quality]
-                fmt_str = (
-                    f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]"
-                    f"/bestvideo[height<={h}]+bestaudio"
-                    f"/best[height<={h}]"
-                    f"/best"
-                )
-            else:
-                fmt_str = (
-                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
-                    "/bestvideo+bestaudio"
-                    "/best"
-                )
-            base.update({"format": fmt_str, "merge_output_format": "mp4"})
+            fmt_str = (
+                f"best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
+                f"/best"
+            )
+        base.update({"format": fmt_str, "merge_output_format": "mp4"})
 
     return base
 
@@ -457,7 +436,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     dl_id = uuid.uuid4().hex[:12]
-    pending_downloads[dl_id] = {"url": url, "user_id": user.id}
+    pending_downloads[dl_id] = {"url": url, "user_id": user.id, "platform": detect_platform(url)}
 
     await update.message.reply_text(
         t(user.id, "choose_format", user.language_code),
@@ -476,8 +455,9 @@ async def handle_format_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     pending_downloads[dl_id]["fmt"] = fmt
+    platform = pending_downloads[dl_id].get("platform", "unknown")
 
-    if fmt == "video":
+    if fmt == "video" and platform == "youtube":
         await query.edit_message_text(
             t(user.id, "choose_quality"),
             reply_markup=quality_keyboard(user.id, dl_id),
