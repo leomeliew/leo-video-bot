@@ -34,6 +34,16 @@ URL_PATTERN = re.compile(r"https?://[^\s]+")
 MAX_FILE_SIZE_MB = 50
 USER_DATA_FILE = "bot/user_data.json"
 COOKIES_FILE = "bot/cookies.txt"
+
+# Load cookies from environment variable if available
+import base64
+_cookies_env = os.environ.get("INSTAGRAM_COOKIES")
+if _cookies_env:
+    try:
+        with open(COOKIES_FILE, "wb") as _f:
+            _f.write(base64.b64decode(_cookies_env))
+    except Exception:
+        pass
 MAX_RETRIES = 3
 
 CHROME_USER_AGENT = (
