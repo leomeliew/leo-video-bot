@@ -36,10 +36,16 @@ USER_DATA_FILE = "bot/user_data.json"
 COOKIES_FILE = "bot/cookies.txt"
 MAX_RETRIES = 3
 
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 TIKTOK_USER_AGENT = (
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/16.0 Mobile/15E148 Safari/604.1"
+    "Version/16.6 Mobile/15E148 Safari/604.1"
 )
 
 STRINGS = {
@@ -234,38 +240,17 @@ def classify_error(error_msg: str, platform: str) -> str:
 
 
 def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> dict:
-    cookies_file = COOKIES_FILE if Path(COOKIES_FILE).exists() else None
-
     base: dict = {
         "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
         "retries": 1,
         "socket_timeout": 30,
+        "http_headers": {"User-Agent": CHROME_USER_AGENT},
     }
 
-    if cookies_file:
-        base["cookiefile"] = cookies_file
-        logger.info("Using cookies file: %s", cookies_file)
-
-    if platform == "youtube":
-        base.update({
-            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
-        })
-    elif platform == "tiktok":
-        base.update({
-            "http_headers": {"User-Agent": TIKTOK_USER_AGENT},
-        })
-    elif platform == "instagram":
-        base.update({
-            "http_headers": {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                )
-            },
-        })
+    if platform == "tiktok":
+        base["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
 
     if fmt == "mp3":
         base.update({
@@ -286,38 +271,42 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
         })
     else:
         height_map = {"360": 360, "720": 720, "1080": 1080}
-        max_size = f"[filesize<{MAX_FILE_SIZE_MB}M]"
 
-        if quality in height_map:
-            h = height_map[quality]
-            if platform == "youtube":
+        if platform == "youtube":
+            if quality in height_map:
+                h = height_map[quality]
                 fmt_str = (
-                    f"best[height<={h}]{max_size}"
+                    f"best[ext=mp4][height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
+                    f"/best[height<={h}][filesize<{MAX_FILE_SIZE_MB}M]"
                     f"/best[height<={h}]"
-                    f"/best{max_size}"
+                    f"/best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
+                    f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
                     f"/best"
                 )
             else:
+                fmt_str = (
+                    f"best[ext=mp4][filesize<{MAX_FILE_SIZE_MB}M]"
+                    f"/best[filesize<{MAX_FILE_SIZE_MB}M]"
+                    f"/best"
+                )
+            base.update({"format": fmt_str, "merge_output_format": "mp4"})
+
+        else:
+            if quality in height_map:
+                h = height_map[quality]
                 fmt_str = (
                     f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]"
                     f"/bestvideo[height<={h}]+bestaudio"
                     f"/best[height<={h}]"
                     f"/best"
                 )
-        else:
-            if platform == "youtube":
-                fmt_str = f"best{max_size}/best"
             else:
                 fmt_str = (
-                    f"bestvideo[ext=mp4]+bestaudio[ext=m4a]"
-                    f"/bestvideo+bestaudio"
-                    f"/best"
+                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
+                    "/bestvideo+bestaudio"
+                    "/best"
                 )
-
-        base.update({
-            "format": fmt_str,
-            "merge_output_format": "mp4",
-        })
+            base.update({"format": fmt_str, "merge_output_format": "mp4"})
 
     return base
 
