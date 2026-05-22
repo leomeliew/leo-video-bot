@@ -1,44 +1,43 @@
-# [Project name]
+# Telegram Video Downloader Bot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A Python Telegram bot that downloads videos from YouTube, Instagram, and TikTok using yt-dlp and sends them back to the user.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `python bot/bot.py` — run the Telegram bot
+- Required env: `TELEGRAM_BOT_TOKEN` — Telegram bot token from @BotFather
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Python 3.11
+- python-telegram-bot — Telegram Bot API wrapper
+- yt-dlp — video downloading from YouTube, Instagram, TikTok
+- ffmpeg — video processing/merging
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `bot/bot.py` — main bot entry point, all handlers and download logic
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Uses `tempfile.TemporaryDirectory` so downloaded files are cleaned up automatically after sending
+- Download runs in a thread executor to avoid blocking the async event loop
+- File size capped at 50MB (Telegram bot API limit)
+- Supports YouTube, Instagram, TikTok URLs; rejects others with a clear message
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Users send a YouTube, Instagram, or TikTok video link to the bot in Telegram. The bot downloads the video and sends it back as a Telegram video message. Supports `/start` for a welcome message.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- _Populate as needed_
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Telegram bot API has a 50MB file size limit for video uploads
+- yt-dlp may occasionally fail on private/geo-restricted content
+- ffmpeg must be installed as a system dep for video merging to work
 
 ## Pointers
 
