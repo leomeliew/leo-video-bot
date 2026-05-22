@@ -44,6 +44,15 @@ if _cookies_env:
             _f.write(base64.b64decode(_cookies_env))
     except Exception:
         pass
+import base64
+_youtube_cookies = os.environ.get("YOUTUBE_COOKIES")
+
+if _youtube_cookies:
+    try:
+        with open("youtube_cookies.txt", "wb") as f:
+            f.write(base64.b64decode(_youtube_cookies))
+    except Exception as e:
+        print(e)
 MAX_RETRIES = 3
 
 CHROME_USER_AGENT = (
@@ -478,6 +487,7 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
         "retries": 1,
         "socket_timeout": 30,
         "http_headers": {"User-Agent": CHROME_USER_AGENT},
+        "cookiefile": "youtube_cookies.txt",
     }
 
     if Path(COOKIES_FILE).exists() and platform in ("instagram", "tiktok"):
