@@ -479,7 +479,7 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
     }
 
     if Path(COOKIES_FILE).exists() and platform in ("instagram", "tiktok"):
-    base["cookiefile"] = COOKIES_FILE
+        base["cookiefile"] = COOKIES_FILE
 
     if platform in ("tiktok", "instagram"):
         base["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
