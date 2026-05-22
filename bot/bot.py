@@ -245,6 +245,10 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
         "http_headers": {"User-Agent": CHROME_USER_AGENT},
     }
 
+    if Path(COOKIES_FILE).exists():
+        base["cookiefile"] = COOKIES_FILE
+        logger.info("Using cookies from %s for platform=%s", COOKIES_FILE, platform)
+
     if platform in ("tiktok", "instagram"):
         base["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
 
