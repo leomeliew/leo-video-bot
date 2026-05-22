@@ -257,6 +257,8 @@ def detect_platform(url: str) -> str:
 def classify_error(error_msg: str, platform: str) -> str:
     msg = error_msg.lower()
     if any(k in msg for k in ("private", "login", "sign in", "authentication", "requires auth")):
+        if platform == "youtube":
+            return "download_error"
         return "error_private"
     if any(k in msg for k in ("geo", "not available in your country", "region")):
         return "error_geo"
