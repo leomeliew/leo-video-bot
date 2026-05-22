@@ -9,7 +9,7 @@
 .instagram.com	TRUE	/	TRUE	1786707606	ig_nrcb	1
 .instagram.com	TRUE	/	TRUE	1780051859	dpr	1.25
 .instagram.com	TRUE	/	TRUE	1780051859	wd	1336x1048
-.instagram.com	TRUE	/	TRUE	1814007261	csrftoken	SW84GqMfhgkZnEXgAfDWQGUeUUZdDFxV
-.instagram.com	TRUE	/	TRUE	1787223261	ds_user_id	33174415975
+.instagram.com	TRUE	/	TRUE	1814008153	csrftoken	SW84GqMfhgkZnEXgAfDWQGUeUUZdDFxV
+.instagram.com	TRUE	/	TRUE	1787224153	ds_user_id	33174415975
 .instagram.com	TRUE	/	TRUE	1810983055	sessionid	33174415975%3ACeNWayWIufuDfG%3A13%3AAYhFmbFmgUof44hmYg8tU8lYaThW8fjx7ZtRfek8zQ
-.instagram.com	TRUE	/	TRUE	0	rur	"LDC\05433174415975\0541810983261:01fe8bb75d48c651b2890ddc31f9cb4f668e6775a0fdfbce9a507377aac6ec544950f153"
+.instagram.com	TRUE	/	TRUE	0	rur	"LDC\05433174415975\0541810984153:01fe5e6d8589b5cfefbc561ff34d1d36c6d3f7fae521cd0bef3078b2db8d32e42304f693"
