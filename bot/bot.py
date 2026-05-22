@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -48,9 +48,9 @@ STRINGS = {
     "en": {
         "start": (
             "👋 Hello! I'm a video downloader bot.\n\n"
-            "Send me a video link from:\n"
+            "Send me a link from:\n"
             "• YouTube\n"
-            "• Instagram\n"
+            "• Instagram (photos, videos, reels, stories, carousels)\n"
             "• TikTok\n\n"
             "I'll download and send it back to you!\n\n"
             "Use /language to change language."
@@ -65,15 +65,15 @@ STRINGS = {
         "done": "✅ Done!",
         "too_large": f"❌ File exceeds {MAX_FILE_SIZE_MB}MB limit. Try a shorter video or lower quality.",
         "download_error": "❌ Could not download. The link may be private, expired, or unsupported.",
-        "error_private": "🔒 This content is private or requires login. Only public videos can be downloaded.",
+        "error_private": "🔒 This content is private. Only public posts can be downloaded.",
         "error_geo": "🌍 This video is not available in the current region (geo-restricted).",
-        "error_removed": "🚫 This video has been removed or is no longer available.",
+        "error_removed": "🚫 This content has been removed or is no longer available.",
         "error_youtube": "❌ YouTube download failed. The video may be age-restricted or unavailable.",
         "error_instagram": "❌ Instagram download failed. Only public posts can be downloaded.",
         "error_tiktok": "❌ TikTok download failed. The video may have been removed or restricted.",
         "generic_error": "❌ Something went wrong. Please try again.",
         "unsupported": "⚠️ Unsupported platform. Please send a YouTube, Instagram, or TikTok link.",
-        "no_url": "Please send a valid video URL from YouTube, Instagram, or TikTok.",
+        "no_url": "Please send a valid URL from YouTube, Instagram, or TikTok.",
         "fmt_video": "🎬 Video (MP4)",
         "fmt_mp3": "🎵 MP3 (audio)",
         "fmt_voice": "🎙 Voice message",
@@ -82,15 +82,22 @@ STRINGS = {
         "q_1080": "1080p",
         "q_best": "⭐ Best quality",
         "cancelled": "❌ Cancelled.",
+        "ig_detecting": "🔍 Detecting content type...",
+        "ig_photo": "📷 Downloading photo...",
+        "ig_carousel": "🖼 Downloading album ({count} photos)...",
+        "ig_sending_photo": "📤 Sending photo...",
+        "ig_sending_album": "📤 Sending album...",
+        "ig_story": "📖 Downloading story...",
+        "ig_reel": "🎬 Downloading reel...",
     },
     "ru": {
         "start": (
-            "👋 Привет! Я бот для скачивания видео.\n\n"
+            "👋 Привет! Я бот для скачивания контента.\n\n"
             "Отправь мне ссылку с:\n"
             "• YouTube\n"
-            "• Instagram\n"
+            "• Instagram (фото, видео, рилсы, истории, карусели)\n"
             "• TikTok\n\n"
-            "Я скачаю и пришлю тебе видео!\n\n"
+            "Я скачаю и пришлю тебе!\n\n"
             "Используй /language для смены языка."
         ),
         "choose_language": "🌐 Выберите язык:",
@@ -103,9 +110,9 @@ STRINGS = {
         "done": "✅ Готово!",
         "too_large": f"❌ Файл превышает {MAX_FILE_SIZE_MB}МБ. Попробуйте более короткое видео или меньшее качество.",
         "download_error": "❌ Не удалось скачать. Ссылка может быть приватной, устаревшей или неподдерживаемой.",
-        "error_private": "🔒 Этот контент приватный или требует авторизации. Можно скачивать только публичные видео.",
+        "error_private": "🔒 Этот контент приватный. Можно скачивать только публичные публикации.",
         "error_geo": "🌍 Это видео недоступно в данном регионе (географическое ограничение).",
-        "error_removed": "🚫 Это видео было удалено или больше не доступно.",
+        "error_removed": "🚫 Этот контент был удалён или больше не доступен.",
         "error_youtube": "❌ Ошибка загрузки YouTube. Видео может быть с возрастным ограничением или недоступно.",
         "error_instagram": "❌ Ошибка загрузки Instagram. Можно скачивать только публичные публикации.",
         "error_tiktok": "❌ Ошибка загрузки TikTok. Видео может быть удалено или ограничено.",
@@ -120,15 +127,22 @@ STRINGS = {
         "q_1080": "1080p",
         "q_best": "⭐ Лучшее качество",
         "cancelled": "❌ Отменено.",
+        "ig_detecting": "🔍 Определяю тип контента...",
+        "ig_photo": "📷 Скачиваю фото...",
+        "ig_carousel": "🖼 Скачиваю альбом ({count} фото)...",
+        "ig_sending_photo": "📤 Отправляю фото...",
+        "ig_sending_album": "📤 Отправляю альбом...",
+        "ig_story": "📖 Скачиваю историю...",
+        "ig_reel": "🎬 Скачиваю рилс...",
     },
     "uz": {
         "start": (
-            "👋 Salom! Men video yuklovchi botman.\n\n"
+            "👋 Salom! Men kontent yuklovchi botman.\n\n"
             "Menga quyidagi saytlardan havola yuboring:\n"
             "• YouTube\n"
-            "• Instagram\n"
+            "• Instagram (rasmlar, videolar, reelslar, hikoyalar, karusellar)\n"
             "• TikTok\n\n"
-            "Men videoni yuklab, sizga yuboraman!\n\n"
+            "Men yuklab, sizga yuboraman!\n\n"
             "Tilni o'zgartirish uchun /language buyrug'ini ishlating."
         ),
         "choose_language": "🌐 Tilni tanlang:",
@@ -141,15 +155,15 @@ STRINGS = {
         "done": "✅ Tayyor!",
         "too_large": f"❌ Fayl {MAX_FILE_SIZE_MB}MB dan katta. Qisqaroq video yoki past sifatni sinab ko'ring.",
         "download_error": "❌ Yuklab bo'lmadi. Havola shaxsiy, muddati o'tgan yoki qo'llab-quvvatlanmasligi mumkin.",
-        "error_private": "🔒 Bu kontent shaxsiy yoki kirish talab qiladi. Faqat ochiq videolarni yuklab olish mumkin.",
+        "error_private": "🔒 Bu kontent shaxsiy. Faqat ochiq postlarni yuklab olish mumkin.",
         "error_geo": "🌍 Bu video hozirgi mintaqada mavjud emas (geo-cheklov).",
-        "error_removed": "🚫 Bu video o'chirilgan yoki endi mavjud emas.",
+        "error_removed": "🚫 Bu kontent o'chirilgan yoki endi mavjud emas.",
         "error_youtube": "❌ YouTube yuklab olish muvaffaqiyatsiz. Video yosh cheklovi yoki mavjud emaslik tufayli bo'lishi mumkin.",
         "error_instagram": "❌ Instagram yuklab olish muvaffaqiyatsiz. Faqat ochiq postlarni yuklab olish mumkin.",
         "error_tiktok": "❌ TikTok yuklab olish muvaffaqiyatsiz. Video o'chirilgan yoki cheklangan bo'lishi mumkin.",
         "generic_error": "❌ Xato yuz berdi. Iltimos qaytadan urinib ko'ring.",
         "unsupported": "⚠️ Qo'llab-quvvatlanmaydigan platforma. YouTube, Instagram yoki TikTok havolasini yuboring.",
-        "no_url": "YouTube, Instagram yoki TikTok dan to'g'ri video havolasini yuboring.",
+        "no_url": "YouTube, Instagram yoki TikTok dan to'g'ri havolasini yuboring.",
         "fmt_video": "🎬 Video (MP4)",
         "fmt_mp3": "🎵 MP3 (audio)",
         "fmt_voice": "🎙 Ovozli xabar",
@@ -158,6 +172,13 @@ STRINGS = {
         "q_1080": "1080p",
         "q_best": "⭐ Eng yaxshi sifat",
         "cancelled": "❌ Bekor qilindi.",
+        "ig_detecting": "🔍 Kontent turini aniqlanmoqda...",
+        "ig_photo": "📷 Rasm yuklanmoqda...",
+        "ig_carousel": "🖼 Albom yuklanmoqda ({count} rasm)...",
+        "ig_sending_photo": "📤 Rasm yuborilmoqda...",
+        "ig_sending_album": "📤 Albom yuborilmoqda...",
+        "ig_story": "📖 Hikoya yuklanmoqda...",
+        "ig_reel": "🎬 Reels yuklanmoqda...",
     },
 }
 
@@ -235,6 +256,208 @@ def classify_error(error_msg: str, platform: str) -> str:
     return platform_map.get(platform, "download_error")
 
 
+def _ig_base_opts() -> dict:
+    opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+        "http_headers": {"User-Agent": TIKTOK_USER_AGENT},
+    }
+    if Path(COOKIES_FILE).exists():
+        opts["cookiefile"] = COOKIES_FILE
+    return opts
+
+
+def _entry_is_photo(entry: dict) -> bool:
+    vcodec = entry.get("vcodec", "")
+    ext = entry.get("ext", "")
+    return vcodec in ("none", "") or ext in ("jpg", "jpeg", "webp", "png")
+
+
+async def detect_instagram_type(url: str) -> dict:
+    """
+    Returns dict with:
+      - type: 'photo' | 'carousel' | 'video' | 'reel' | 'story'
+      - entries: list of info dicts (for carousel, one per item)
+      - error: error string key if detection failed
+    """
+    if "/stories/" in url:
+        return {"type": "story", "entries": [], "error": None}
+
+    loop = asyncio.get_event_loop()
+    opts = {**_ig_base_opts(), "skip_download": True}
+
+    def _extract():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+
+    try:
+        info = await loop.run_in_executor(None, _extract)
+        if info is None:
+            return {"type": "video", "entries": [], "error": "download_error"}
+
+        if "/reel" in url or "/reels/" in url:
+            return {"type": "reel", "entries": [info], "error": None}
+
+        if info.get("_type") == "playlist":
+            entries = info.get("entries") or []
+            photos = [e for e in entries if e and _entry_is_photo(e)]
+            if len(photos) == len(entries) and entries:
+                return {"type": "carousel", "entries": entries, "error": None}
+            return {"type": "carousel_mixed", "entries": entries, "error": None}
+
+        if _entry_is_photo(info):
+            return {"type": "photo", "entries": [info], "error": None}
+
+        return {"type": "video", "entries": [info], "error": None}
+
+    except yt_dlp.utils.DownloadError as e:
+        raw = str(e)
+        logger.warning("Instagram detection failed: %s", raw)
+        error_key = classify_error(raw, "instagram")
+        return {"type": "unknown", "entries": [], "error": error_key}
+    except Exception as e:
+        logger.error("Unexpected error during Instagram detection: %s", e)
+        return {"type": "unknown", "entries": [], "error": "generic_error"}
+
+
+async def download_instagram_photos(url: str, tmpdir: str, entries: list) -> list[str]:
+    """Download photo(s) from Instagram, return list of local file paths."""
+    loop = asyncio.get_event_loop()
+    opts = {
+        **_ig_base_opts(),
+        "outtmpl": os.path.join(tmpdir, "%(autonumber)s_%(id)s.%(ext)s"),
+        "format": "best",
+    }
+
+    def _download():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+
+    await loop.run_in_executor(None, _download)
+
+    image_exts = {".jpg", ".jpeg", ".webp", ".png"}
+    files = sorted(
+        [f for f in Path(tmpdir).iterdir() if f.suffix.lower() in image_exts],
+        key=lambda p: p.name,
+    )
+    return [str(f) for f in files]
+
+
+async def process_instagram_photos(message, user, url: str, status_msg) -> None:
+    """Detect and handle Instagram photo/carousel/reel/story/video."""
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ig_type_info = await detect_instagram_type(url)
+            ig_type = ig_type_info["type"]
+            error = ig_type_info.get("error")
+
+            if error:
+                await status_msg.edit_text(t(user.id, error))
+                return
+
+            if ig_type == "photo":
+                await status_msg.edit_text(t(user.id, "ig_photo"))
+                photos = await download_instagram_photos(url, tmpdir, ig_type_info["entries"])
+                if not photos:
+                    await status_msg.edit_text(t(user.id, "error_instagram"))
+                    return
+                await status_msg.edit_text(t(user.id, "ig_sending_photo"))
+                with open(photos[0], "rb") as f:
+                    await message.reply_photo(photo=f, read_timeout=60, write_timeout=60)
+                await status_msg.edit_text(t(user.id, "done"))
+
+            elif ig_type in ("carousel", "carousel_mixed"):
+                entries = ig_type_info["entries"]
+                count = len(entries)
+                await status_msg.edit_text(t(user.id, "ig_carousel", count=count))
+                photos = await download_instagram_photos(url, tmpdir, entries)
+                if not photos:
+                    await status_msg.edit_text(t(user.id, "error_instagram"))
+                    return
+                await status_msg.edit_text(t(user.id, "ig_sending_album"))
+                image_exts = {".jpg", ".jpeg", ".webp", ".png"}
+                photo_files = [p for p in photos if Path(p).suffix.lower() in image_exts]
+                if photo_files:
+                    BATCH = 10
+                    for i in range(0, len(photo_files), BATCH):
+                        batch = photo_files[i:i + BATCH]
+                        media = []
+                        handles = []
+                        for path in batch:
+                            fh = open(path, "rb")
+                            handles.append(fh)
+                            media.append(InputMediaPhoto(media=fh))
+                        try:
+                            await message.reply_media_group(
+                                media=media, read_timeout=120, write_timeout=120
+                            )
+                        finally:
+                            for fh in handles:
+                                fh.close()
+                await status_msg.edit_text(t(user.id, "done"))
+
+            elif ig_type == "story":
+                await status_msg.edit_text(t(user.id, "ig_story"))
+                await _send_ig_video(url, tmpdir, message, user, status_msg)
+
+            elif ig_type == "reel":
+                await status_msg.edit_text(t(user.id, "ig_reel"))
+                await _send_ig_video(url, tmpdir, message, user, status_msg)
+
+            else:
+                await status_msg.edit_text(t(user.id, "downloading"))
+                await _send_ig_video(url, tmpdir, message, user, status_msg)
+
+    except yt_dlp.utils.DownloadError as e:
+        logger.error("Instagram download error: %s", e)
+        await status_msg.edit_text(t(user.id, classify_error(str(e), "instagram")))
+    except Exception as e:
+        logger.error("Unexpected Instagram error: %s", e)
+        await status_msg.edit_text(t(user.id, "generic_error"))
+
+
+async def _send_ig_video(url: str, tmpdir: str, message, user, status_msg) -> None:
+    """Download and send an Instagram video/reel/story."""
+    loop = asyncio.get_event_loop()
+    opts = {
+        **_ig_base_opts(),
+        "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
+        "format": "best[ext=mp4]/best",
+        "merge_output_format": "mp4",
+    }
+
+    def _download():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if info is None:
+                return None
+            filename = ydl.prepare_filename(info)
+            path = Path(filename)
+            if path.exists():
+                return str(path)
+            mp4 = path.with_suffix(".mp4")
+            if mp4.exists():
+                return str(mp4)
+            files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
+            return str(files[0]) if files else None
+
+    filepath = await loop.run_in_executor(None, _download)
+    if not filepath or not Path(filepath).exists():
+        await status_msg.edit_text(t(user.id, "error_instagram"))
+        return
+
+    if Path(filepath).stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+        await status_msg.edit_text(t(user.id, "too_large"))
+        return
+
+    await status_msg.edit_text(t(user.id, "sending"))
+    with open(filepath, "rb") as f:
+        await message.reply_video(
+            video=f, supports_streaming=True, read_timeout=120, write_timeout=120
+        )
+    await status_msg.edit_text(t(user.id, "done"))
+
+
 def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> dict:
     base: dict = {
         "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
@@ -247,7 +470,6 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
 
     if Path(COOKIES_FILE).exists():
         base["cookiefile"] = COOKIES_FILE
-        logger.info("Using cookies from %s for platform=%s", COOKIES_FILE, platform)
 
     if platform in ("tiktok", "instagram"):
         base["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
@@ -439,8 +661,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(user.id, "unsupported", user.language_code))
         return
 
+    platform = detect_platform(url)
+
+    if platform == "instagram":
+        status_msg = await update.message.reply_text(
+            t(user.id, "ig_detecting", user.language_code)
+        )
+        await process_instagram_photos(update.message, user, url, status_msg)
+        return
+
     dl_id = uuid.uuid4().hex[:12]
-    pending_downloads[dl_id] = {"url": url, "user_id": user.id, "platform": detect_platform(url)}
+    pending_downloads[dl_id] = {"url": url, "user_id": user.id, "platform": platform}
 
     await update.message.reply_text(
         t(user.id, "choose_format", user.language_code),
