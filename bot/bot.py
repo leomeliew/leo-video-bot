@@ -318,7 +318,7 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
     elif fmt == "voice":
         base.update({
             "format": "bestaudio/best",
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "vorbis"}],
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "opus"}],
         })
     elif platform in ("tiktok", "instagram"):
         base.update({"format": "best[ext=mp4]/best", "merge_output_format": "mp4"})
@@ -370,27 +370,39 @@ def _find_output_file(output_dir: str, prepared_path: str, fmt: str) -> str | No
 
 async def download_file(
     url: str, output_dir: str, fmt: str, quality: str, platform: str
-) -> tuple[str | None, str | None]:
-    """Download a single file. Returns (filepath, error_key)."""
+) -> tuple[str | None, str | None, dict]:
+    """Download a single file. Returns (filepath, error_key, meta)."""
     last_error: str | None = None
     loop = asyncio.get_event_loop()
 
     for attempt in range(1, MAX_RETRIES + 1):
         opts = build_ydl_opts(output_dir, fmt, quality, platform)
+        _meta_holder: list[dict] = [{}]
 
-        def _dl(o=opts):
+        def _dl(o=opts, holder=_meta_holder):
             with yt_dlp.YoutubeDL(o) as ydl:
                 info = ydl.extract_info(url, download=True)
+                if info:
+                    holder[0] = {
+                        "title": info.get("title") or info.get("fulltitle") or "",
+                        "performer": (
+                            info.get("artist")
+                            or info.get("creator")
+                            or info.get("uploader")
+                            or ""
+                        ),
+                    }
                 return ydl.prepare_filename(info) if info else None
 
         try:
             prepared = await loop.run_in_executor(None, _dl)
+            meta = _meta_holder[0]
             if prepared is None:
                 last_error = "no_info"
                 continue
             fp = _find_output_file(output_dir, prepared, fmt)
             if fp:
-                return fp, None
+                return fp, None, meta
             last_error = "file_not_found"
 
         except yt_dlp.utils.DownloadError as e:
@@ -399,7 +411,7 @@ async def download_file(
             last_error = raw
             key = classify_error(raw, platform)
             if key in ("error_private", "error_removed", "error_geo"):
-                return None, key
+                return None, key, {}
         except Exception as e:
             logger.error("Unexpected error attempt %d: %s", attempt, e)
             last_error = str(e)
@@ -407,7 +419,7 @@ async def download_file(
         if attempt < MAX_RETRIES:
             await asyncio.sleep(2 * attempt)
 
-    return None, classify_error(last_error or "", platform) if last_error else "download_error"
+    return None, classify_error(last_error or "", platform) if last_error else "download_error", {}
 
 
 def _is_photo_entry(entry: dict) -> bool:
@@ -491,20 +503,25 @@ async def _download_ig_photos(url: str, tmpdir: str) -> list[str]:
     )
 
 
-async def _download_ig_video(url: str, tmpdir: str) -> str | None:
-    """Download Instagram video/reel/story. Returns filepath or None."""
+async def _download_ig_video(url: str, tmpdir: str) -> tuple[str | None, dict]:
+    """Download Instagram video/reel/story. Returns (filepath, meta)."""
     loop = asyncio.get_event_loop()
     opts = {
         **_ig_base_opts(tmpdir),
         "format": "best[ext=mp4]/best",
         "merge_output_format": "mp4",
     }
+    _meta_holder: list[dict] = [{}]
 
     def _dl():
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
                 return None
+            _meta_holder[0] = {
+                "title": info.get("title") or info.get("fulltitle") or "",
+                "performer": info.get("uploader") or info.get("creator") or "",
+            }
             p = Path(ydl.prepare_filename(info))
             if p.exists():
                 return str(p)
@@ -514,7 +531,8 @@ async def _download_ig_video(url: str, tmpdir: str) -> str | None:
             files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
             return str(files[0]) if files else None
 
-    return await loop.run_in_executor(None, _dl)
+    path = await loop.run_in_executor(None, _dl)
+    return path, _meta_holder[0]
 
 
 async def _extract_audio_ffmpeg(video_path: str, tmpdir: str, fmt: str) -> str | None:
@@ -534,11 +552,11 @@ async def _extract_audio_ffmpeg(video_path: str, tmpdir: str, fmt: str) -> str |
             "-vn", "-acodec", "libmp3lame", "-q:a", "2",
             out,
         ]
-    else:  # voice → ogg vorbis
+    else:  # voice → ogg opus (Telegram-compatible)
         out = str(src.with_suffix(".ogg"))
         cmd = [
             "ffmpeg", "-y", "-i", str(src),
-            "-vn", "-acodec", "libvorbis", "-q:a", "4",
+            "-vn", "-c:a", "libopus", "-b:a", "128k",
             out,
         ]
 
@@ -615,7 +633,7 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
             # then extract audio with ffmpeg (bestaudio/best fails for Instagram).
             if fmt in ("mp3", "voice"):
                 await status_msg.edit_text(t(user.id, "downloading"))
-                video_path = await _download_ig_video(url, tmpdir)
+                video_path, meta = await _download_ig_video(url, tmpdir)
                 if not video_path or not Path(video_path).exists():
                     await status_msg.edit_text(t(user.id, "error_instagram"))
                     return
@@ -626,7 +644,13 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 await status_msg.edit_text(t(user.id, "sending"))
                 with open(audio_path, "rb") as f:
                     if fmt == "mp3":
-                        await message.reply_audio(audio=f, read_timeout=120, write_timeout=120)
+                        await message.reply_audio(
+                            audio=f,
+                            title=meta.get("title") or None,
+                            performer=meta.get("performer") or None,
+                            read_timeout=120,
+                            write_timeout=120,
+                        )
                     else:
                         await message.reply_voice(voice=f, read_timeout=120, write_timeout=120)
                 await status_msg.edit_text(t(user.id, "done"))
@@ -634,7 +658,7 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
 
             # Default: download video
             await status_msg.edit_text(t(user.id, "downloading"))
-            filepath = await _download_ig_video(url, tmpdir)
+            filepath, _ = await _download_ig_video(url, tmpdir)
 
             if not filepath or not Path(filepath).exists():
                 # Maybe it's actually a photo (e.g. story with image)
@@ -856,7 +880,7 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
                         pass
                     await asyncio.sleep(2 * (attempt - 1))
 
-                filepath, error_key = await download_file(url, tmpdir, fmt, quality, platform)
+                filepath, error_key, meta = await download_file(url, tmpdir, fmt, quality, platform)
                 if filepath is not None:
                     break
                 if error_key in ("error_private", "error_removed", "error_geo"):
@@ -878,7 +902,13 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
 
             with open(filepath, "rb") as f:
                 if fmt == "mp3":
-                    await query.message.reply_audio(audio=f, read_timeout=120, write_timeout=120)
+                    await query.message.reply_audio(
+                        audio=f,
+                        title=meta.get("title") or None,
+                        performer=meta.get("performer") or None,
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
                 elif fmt == "voice":
                     await query.message.reply_voice(voice=f, read_timeout=120, write_timeout=120)
                 else:
