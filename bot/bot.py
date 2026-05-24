@@ -9,8 +9,8 @@ import json
 import uuid
 from pathlib import Path
 
+import subprocess
 import imageio_ffmpeg
-from pydub import AudioSegment
 import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
@@ -22,9 +22,8 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Point pydub at imageio-ffmpeg's bundled binary (no system ffmpeg required)
+# ffmpeg binary provided by imageio-ffmpeg — no system ffmpeg required
 _FFMPEG_BIN = imageio_ffmpeg.get_ffmpeg_exe()
-AudioSegment.converter = _FFMPEG_BIN
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -534,30 +533,32 @@ async def _download_ig_video(url: str, tmpdir: str) -> tuple[str | None, dict]:
     return path, _meta_holder[0]
 
 
-async def _convert_audio_pydub(src_path: str, fmt: str) -> str | None:
+async def _convert_audio_ffmpeg(src_path: str, fmt: str) -> str | None:
     """
-    Convert/extract audio using pydub + imageio-ffmpeg (no system ffmpeg needed).
-    fmt="mp3"   → 192 kbps MP3  (used for Instagram video → MP3)
+    Convert audio/video to MP3 or OGG Opus via imageio-ffmpeg binary (no system ffmpeg needed).
+    fmt="mp3"   → 192 kbps MP3
     fmt="voice" → OGG Opus 128 kbps (Telegram voice message)
     Returns output path or None on failure.
     """
     loop = asyncio.get_event_loop()
     src = Path(src_path)
 
+    if fmt == "mp3":
+        out = str(src.parent / (src.stem + "_audio.mp3"))
+        cmd = [_FFMPEG_BIN, "-y", "-i", str(src), "-vn", "-acodec", "libmp3lame", "-q:a", "2", out]
+    else:  # voice → OGG Opus
+        out = str(src.parent / (src.stem + "_voice.ogg"))
+        cmd = [_FFMPEG_BIN, "-y", "-i", str(src), "-vn", "-c:a", "libopus", "-b:a", "128k", out]
+
     def _run():
-        try:
-            audio = AudioSegment.from_file(str(src))
-            if fmt == "mp3":
-                out = str(src.parent / (src.stem + "_audio.mp3"))
-                audio.export(out, format="mp3", bitrate="192k")
-            else:  # voice
-                out = str(src.parent / (src.stem + "_voice.ogg"))
-                audio.export(out, format="ogg", codec="libopus", bitrate="128k")
-            p = Path(out)
-            return str(p) if p.exists() and p.stat().st_size > 0 else None
-        except Exception as e:
-            logger.warning("pydub audio conversion failed (%s): %s", fmt, e)
+        result = subprocess.run(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120
+        )
+        if result.returncode != 0:
+            logger.warning("ffmpeg %s conversion failed: %s", fmt, result.stderr.decode()[-300:])
             return None
+        p = Path(out)
+        return str(p) if p.exists() and p.stat().st_size > 0 else None
 
     return await loop.run_in_executor(None, _run)
 
@@ -624,7 +625,7 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 if not video_path or not Path(video_path).exists():
                     await status_msg.edit_text(t(user.id, "error_instagram"))
                     return
-                audio_path = await _convert_audio_pydub(video_path, fmt)
+                audio_path = await _convert_audio_ffmpeg(video_path, fmt)
                 if not audio_path:
                     await status_msg.edit_text(t(user.id, "download_error"))
                     return
@@ -887,9 +888,9 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
 
             await query.edit_message_text(t(user.id, "sending"))
 
-            # Voice: convert downloaded audio to OGG Opus with pydub
+            # Voice: convert downloaded audio to OGG Opus via ffmpeg
             if fmt == "voice":
-                converted = await _convert_audio_pydub(filepath, "voice")
+                converted = await _convert_audio_ffmpeg(filepath, "voice")
                 if converted:
                     filepath = converted
 
