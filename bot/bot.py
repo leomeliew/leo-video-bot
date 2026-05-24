@@ -7,9 +7,10 @@ import tempfile
 import re
 import json
 import uuid
-import subprocess
 from pathlib import Path
 
+import imageio_ffmpeg
+from pydub import AudioSegment
 import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
@@ -20,6 +21,10 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+
+# Point pydub at imageio-ffmpeg's bundled binary (no system ffmpeg required)
+_FFMPEG_BIN = imageio_ffmpeg.get_ffmpeg_exe()
+AudioSegment.converter = _FFMPEG_BIN
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -311,15 +316,11 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
         base["http_headers"] = {"User-Agent": MOBILE_UA}
 
     if fmt == "mp3":
-        base.update({
-            "format": "bestaudio/best",
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
-        })
+        # Download best audio directly — no postprocessor needed; send file as-is
+        base.update({"format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio"})
     elif fmt == "voice":
-        base.update({
-            "format": "bestaudio/best",
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "opus"}],
-        })
+        # Download best audio; pydub converts to OGG Opus after download
+        base.update({"format": "bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio"})
     elif platform in ("tiktok", "instagram"):
         base.update({"format": "best[ext=mp4]/best", "merge_output_format": "mp4"})
     else:
@@ -345,16 +346,14 @@ def build_ydl_opts(output_dir: str, fmt: str, quality: str, platform: str) -> di
 def _find_output_file(output_dir: str, prepared_path: str, fmt: str) -> str | None:
     p = Path(prepared_path)
 
-    if fmt == "mp3":
-        for c in [p.with_suffix(".mp3"), *Path(output_dir).glob("*.mp3")]:
-            if c.exists():
-                return str(c)
-    elif fmt == "voice":
-        for ext in (".ogg", ".opus", ".webm"):
+    if fmt in ("mp3", "voice"):
+        # bestaudio can produce m4a, mp3, opus, ogg, webm — accept any audio file
+        audio_exts = (".m4a", ".mp3", ".opus", ".ogg", ".webm", ".aac", ".flac")
+        for ext in audio_exts:
             c = p.with_suffix(ext)
             if c.exists():
                 return str(c)
-        for pat in ("*.ogg", "*.opus", "*.webm"):
+        for pat in [f"*{e}" for e in audio_exts]:
             matches = list(Path(output_dir).glob(pat))
             if matches:
                 return str(matches[0])
@@ -535,42 +534,30 @@ async def _download_ig_video(url: str, tmpdir: str) -> tuple[str | None, dict]:
     return path, _meta_holder[0]
 
 
-async def _extract_audio_ffmpeg(video_path: str, tmpdir: str, fmt: str) -> str | None:
+async def _convert_audio_pydub(src_path: str, fmt: str) -> str | None:
     """
-    Extract audio from a downloaded video file using ffmpeg.
-    fmt="mp3"   → 192 kbps MP3
-    fmt="voice" → OGG Vorbis (Telegram voice message)
-    Returns the output file path or None on failure.
+    Convert/extract audio using pydub + imageio-ffmpeg (no system ffmpeg needed).
+    fmt="mp3"   → 192 kbps MP3  (used for Instagram video → MP3)
+    fmt="voice" → OGG Opus 128 kbps (Telegram voice message)
+    Returns output path or None on failure.
     """
     loop = asyncio.get_event_loop()
-    src = Path(video_path)
-
-    if fmt == "mp3":
-        out = str(src.with_suffix(".mp3"))
-        cmd = [
-            "ffmpeg", "-y", "-i", str(src),
-            "-vn", "-acodec", "libmp3lame", "-q:a", "2",
-            out,
-        ]
-    else:  # voice → ogg opus (Telegram-compatible)
-        out = str(src.with_suffix(".ogg"))
-        cmd = [
-            "ffmpeg", "-y", "-i", str(src),
-            "-vn", "-c:a", "libopus", "-b:a", "128k",
-            out,
-        ]
+    src = Path(src_path)
 
     def _run():
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            logger.warning("ffmpeg audio extraction failed: %s", result.stderr.decode()[-300:])
+        try:
+            audio = AudioSegment.from_file(str(src))
+            if fmt == "mp3":
+                out = str(src.parent / (src.stem + "_audio.mp3"))
+                audio.export(out, format="mp3", bitrate="192k")
+            else:  # voice
+                out = str(src.parent / (src.stem + "_voice.ogg"))
+                audio.export(out, format="ogg", codec="libopus", bitrate="128k")
+            p = Path(out)
+            return str(p) if p.exists() and p.stat().st_size > 0 else None
+        except Exception as e:
+            logger.warning("pydub audio conversion failed (%s): %s", fmt, e)
             return None
-        return out if Path(out).exists() else None
 
     return await loop.run_in_executor(None, _run)
 
@@ -637,7 +624,7 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 if not video_path or not Path(video_path).exists():
                     await status_msg.edit_text(t(user.id, "error_instagram"))
                     return
-                audio_path = await _extract_audio_ffmpeg(video_path, tmpdir, fmt)
+                audio_path = await _convert_audio_pydub(video_path, fmt)
                 if not audio_path:
                     await status_msg.edit_text(t(user.id, "download_error"))
                     return
@@ -899,6 +886,12 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
                 return
 
             await query.edit_message_text(t(user.id, "sending"))
+
+            # Voice: convert downloaded audio to OGG Opus with pydub
+            if fmt == "voice":
+                converted = await _convert_audio_pydub(filepath, "voice")
+                if converted:
+                    filepath = converted
 
             with open(filepath, "rb") as f:
                 if fmt == "mp3":

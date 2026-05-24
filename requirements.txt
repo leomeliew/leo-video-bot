@@ -1,3 +1,4 @@
 python-telegram-bot==21.5
 yt-dlp
-ffmpeg-python
+pydub
+imageio-ffmpeg
