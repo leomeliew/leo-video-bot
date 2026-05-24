@@ -7,6 +7,7 @@ import tempfile
 import re
 import json
 import uuid
+import subprocess
 from pathlib import Path
 
 import yt_dlp
@@ -516,6 +517,46 @@ async def _download_ig_video(url: str, tmpdir: str) -> str | None:
     return await loop.run_in_executor(None, _dl)
 
 
+async def _extract_audio_ffmpeg(video_path: str, tmpdir: str, fmt: str) -> str | None:
+    """
+    Extract audio from a downloaded video file using ffmpeg.
+    fmt="mp3"   → 192 kbps MP3
+    fmt="voice" → OGG Vorbis (Telegram voice message)
+    Returns the output file path or None on failure.
+    """
+    loop = asyncio.get_event_loop()
+    src = Path(video_path)
+
+    if fmt == "mp3":
+        out = str(src.with_suffix(".mp3"))
+        cmd = [
+            "ffmpeg", "-y", "-i", str(src),
+            "-vn", "-acodec", "libmp3lame", "-q:a", "2",
+            out,
+        ]
+    else:  # voice → ogg vorbis
+        out = str(src.with_suffix(".ogg"))
+        cmd = [
+            "ffmpeg", "-y", "-i", str(src),
+            "-vn", "-acodec", "libvorbis", "-q:a", "4",
+            out,
+        ]
+
+    def _run():
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning("ffmpeg audio extraction failed: %s", result.stderr.decode()[-300:])
+            return None
+        return out if Path(out).exists() else None
+
+    return await loop.run_in_executor(None, _run)
+
+
 async def process_instagram_media(message, user, url: str, fmt: str, status_msg) -> None:
     """
     Full Instagram handler. Detects type, then:
@@ -570,15 +611,20 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 return
 
             # ── Videos / Reels / Stories ───────────────────────────────────
-            # For MP3 / Voice formats use standard download_file with Instagram opts
+            # Instagram has no separate audio stream — always download video first,
+            # then extract audio with ffmpeg (bestaudio/best fails for Instagram).
             if fmt in ("mp3", "voice"):
                 await status_msg.edit_text(t(user.id, "downloading"))
-                filepath, error_key = await download_file(url, tmpdir, fmt, "best", "instagram")
-                if not filepath:
-                    await status_msg.edit_text(t(user.id, error_key or "error_instagram"))
+                video_path = await _download_ig_video(url, tmpdir)
+                if not video_path or not Path(video_path).exists():
+                    await status_msg.edit_text(t(user.id, "error_instagram"))
+                    return
+                audio_path = await _extract_audio_ffmpeg(video_path, tmpdir, fmt)
+                if not audio_path:
+                    await status_msg.edit_text(t(user.id, "download_error"))
                     return
                 await status_msg.edit_text(t(user.id, "sending"))
-                with open(filepath, "rb") as f:
+                with open(audio_path, "rb") as f:
                     if fmt == "mp3":
                         await message.reply_audio(audio=f, read_timeout=120, write_timeout=120)
                     else:
@@ -850,12 +896,25 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
 
 async def _post_init(app: Application) -> None:
     """Run before polling starts: evict any lingering Telegram session."""
-    await asyncio.sleep(2)
-    try:
-        await app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Webhook cleared, starting polling…")
-    except Exception as e:
-        logger.warning("delete_webhook error (non-fatal): %s", e)
+    await asyncio.sleep(5)          # let the old process fully release the session
+    for attempt in range(1, 4):
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook cleared (attempt %d), starting polling…", attempt)
+            return
+        except Exception as e:
+            logger.warning("delete_webhook attempt %d failed: %s", attempt, e)
+            await asyncio.sleep(3)
+
+
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global error handler — log all errors; ignore transient Conflict errors."""
+    from telegram.error import Conflict
+    err = context.error
+    if isinstance(err, Conflict):
+        logger.warning("Transient Conflict error (ignoring): %s", err)
+        return
+    logger.error("Unhandled bot error: %s", err, exc_info=err)
 
 
 def main() -> None:
@@ -878,6 +937,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(handle_format_callback,   pattern=r"^fmt:"))
     app.add_handler(CallbackQueryHandler(handle_quality_callback,  pattern=r"^q:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_error_handler(_error_handler)
 
     logger.info("Bot starting…")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
