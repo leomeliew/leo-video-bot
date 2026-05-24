@@ -1,4 +1,4 @@
 python-telegram-bot==21.5
-yt-dlp>=2025.1.15
-ffmpeg-python
-requests
+yt-dlp
+pydub
+imageio-ffmpeg
