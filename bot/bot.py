@@ -848,6 +848,16 @@ async def process_download(query, user, dl_id: str, quality: str) -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+async def _post_init(app: Application) -> None:
+    """Run before polling starts: evict any lingering Telegram session."""
+    await asyncio.sleep(2)
+    try:
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook cleared, starting polling…")
+    except Exception as e:
+        logger.warning("delete_webhook error (non-fatal): %s", e)
+
+
 def main() -> None:
     acquire_instance_lock()
 
@@ -855,7 +865,12 @@ def main() -> None:
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
 
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .post_init(_post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("language", cmd_language))
