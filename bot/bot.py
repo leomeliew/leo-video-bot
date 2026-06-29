@@ -45,6 +45,10 @@ USER_DATA_FILE = "bot/user_data.json"
 COOKIES_FILE = "bot/cookies.txt"
 MAX_RETRIES = 3
 LOCK_FILE = "/tmp/telegram_bot.lock"
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+
+# Admin state: users currently waiting to send a cookies.txt document
+_awaiting_cookies: set[int] = set()
 
 CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -101,6 +105,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Downloading album ({count} items)...",
         "ig_sending_photo": "📤 Sending photo...",
         "ig_sending_album": "📤 Sending album...",
+        "cookie_send_file": "📎 Send cookies.txt as a document.",
+        "cookie_updated": "✅ Cookie yangilandi!",
+        "cookie_not_admin": "⛔ You are not authorized to use this command.",
+        "cookie_not_file": "❌ Please send a file named cookies.txt.",
     },
     "ru": {
         "start": (
@@ -144,6 +152,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Скачиваю альбом ({count} элементов)...",
         "ig_sending_photo": "📤 Отправляю фото...",
         "ig_sending_album": "📤 Отправляю альбом...",
+        "cookie_send_file": "📎 Отправьте cookies.txt файл как документ.",
+        "cookie_updated": "✅ Cookie yangilandi!",
+        "cookie_not_admin": "⛔ У вас нет прав для этой команды.",
+        "cookie_not_file": "❌ Пожалуйста, отправьте файл с именем cookies.txt.",
     },
     "uz": {
         "start": (
@@ -187,6 +199,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Albom yuklanmoqda ({count} element)...",
         "ig_sending_photo": "📤 Rasm yuborilmoqda...",
         "ig_sending_album": "📤 Albom yuborilmoqda...",
+        "cookie_send_file": "📎 cookies.txt faylini dokument sifatida yuboring.",
+        "cookie_updated": "✅ Cookie yangilandi!",
+        "cookie_not_admin": "⛔ Siz bu buyruqdan foydalana olmaysiz.",
+        "cookie_not_file": "❌ Iltimos, cookies.txt nomli fayl yuboring.",
     },
 }
 
@@ -941,6 +957,30 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.error("Unhandled bot error: %s", err, exc_info=err)
 
 
+async def cmd_updatecookies(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not ADMIN_ID or user.id != ADMIN_ID:
+        await update.message.reply_text(t(user.id, "cookie_not_admin"))
+        return
+    _awaiting_cookies.add(user.id)
+    await update.message.reply_text(t(user.id, "cookie_send_file"))
+
+
+async def handle_cookies_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user.id not in _awaiting_cookies:
+        return
+    doc = update.message.document
+    if not doc or not doc.file_name or not doc.file_name.lower().endswith(".txt"):
+        await update.message.reply_text(t(user.id, "cookie_not_file"))
+        return
+    _awaiting_cookies.discard(user.id)
+    file = await doc.get_file()
+    await file.download_to_drive(COOKIES_FILE)
+    logger.info("cookies.txt updated by admin %s", user.id)
+    await update.message.reply_text(t(user.id, "cookie_updated"))
+
+
 def main() -> None:
     acquire_instance_lock()
 
@@ -957,9 +997,11 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("language", cmd_language))
+    app.add_handler(CommandHandler("updatecookies", cmd_updatecookies))
     app.add_handler(CallbackQueryHandler(handle_language_callback, pattern=r"^lang:"))
     app.add_handler(CallbackQueryHandler(handle_format_callback,   pattern=r"^fmt:"))
     app.add_handler(CallbackQueryHandler(handle_quality_callback,  pattern=r"^q:"))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_cookies_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(_error_handler)
 
