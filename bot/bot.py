@@ -1017,10 +1017,10 @@ def main() -> None:
             pass
 
     threading.Thread(
-        target=lambda: HTTPServer(("0.0.0.0", 8082), _PingHandler).serve_forever(),
+        target=lambda: HTTPServer(("0.0.0.0", 10000), _PingHandler).serve_forever(),
         daemon=True,
     ).start()
-    logger.info("Keepalive server started on port 8082")
+    logger.info("Keepalive server started on port 10000")
 
     logger.info("Bot starting…")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
