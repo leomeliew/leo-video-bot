@@ -1009,7 +1009,7 @@ def main() -> None:
     app.add_error_handler(_error_handler)
 
     logger.info("Bot starting…")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
