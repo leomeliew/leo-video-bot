@@ -7,6 +7,8 @@ import tempfile
 import re
 import json
 import uuid
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 import subprocess
@@ -1004,6 +1006,21 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, handle_cookies_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(_error_handler)
+
+    # Keepalive HTTP server so Replit doesn't sleep the instance
+    class _PingHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+        def log_message(self, *args):
+            pass
+
+    threading.Thread(
+        target=lambda: HTTPServer(("0.0.0.0", 8082), _PingHandler).serve_forever(),
+        daemon=True,
+    ).start()
+    logger.info("Keepalive server started on port 8082")
 
     logger.info("Bot starting…")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
