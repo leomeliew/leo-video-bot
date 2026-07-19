@@ -726,6 +726,65 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
         logger.error("Unexpected IG error: %s", e)
         await status_msg.edit_text(t(user.id, "generic_error"))
 
+async def _auto_download(message, user, url: str, platform: str, status_msg) -> None:
+    """
+    Download and send media automatically — no format/quality selection.
+    Used in group chats: always downloads best video.
+    """
+    try:
+        if platform == "instagram":
+            await process_instagram_media(message, user, url, "video", status_msg)
+            return
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath: str | None = None
+            error_key: str | None = None
+
+            for attempt in range(1, MAX_RETRIES + 1):
+                if attempt > 1:
+                    try:
+                        await status_msg.edit_text(
+                            t(user.id, "downloading_retry", attempt=attempt, max=MAX_RETRIES)
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(2 * (attempt - 1))
+
+                filepath, error_key, meta = await download_file(
+                    url, tmpdir, "video", "best", platform
+                )
+                if filepath is not None:
+                    break
+                if error_key in ("error_private", "error_removed", "error_geo"):
+                    await status_msg.edit_text(t(user.id, error_key))
+                    return
+                if attempt == MAX_RETRIES:
+                    await status_msg.edit_text(t(user.id, error_key or "download_error"))
+                    return
+
+            if not filepath or not Path(filepath).exists():
+                await status_msg.edit_text(t(user.id, "download_error"))
+                return
+
+            if Path(filepath).stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                await status_msg.edit_text(t(user.id, "too_large"))
+                return
+
+            await status_msg.edit_text(t(user.id, "sending"))
+            with open(filepath, "rb") as f:
+                await message.reply_video(
+                    video=f, supports_streaming=True, read_timeout=120, write_timeout=120
+                )
+            await status_msg.edit_text(t(user.id, "done"))
+
+    except Exception as e:
+        logger.error("_auto_download error: %s", e)
+        try:
+            await status_msg.edit_text(t(user.id, "generic_error"))
+        except Exception:
+            pass
+
+
 # ── Keyboards ─────────────────────────────────────────────────────────────────
 
 def format_keyboard(user_id: int, dl_id: str) -> InlineKeyboardMarkup:
@@ -784,16 +843,32 @@ async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    text = update.message.text or ""
+    message = update.message
+    text = message.text or ""
+    is_group = message.chat.type in ("group", "supergroup")
+
     urls = URL_PATTERN.findall(text)
 
+    # ── Group chats ───────────────────────────────────────────────────────────
+    if is_group:
+        # Only react to supported URLs; silently ignore everything else
+        supported = [u for u in urls if is_supported_url(u)]
+        if not supported:
+            return
+        url = supported[0]
+        platform = detect_platform(url)
+        status_msg = await message.reply_text(t(user.id, "downloading", user.language_code))
+        await _auto_download(message, user, url, platform, status_msg)
+        return
+
+    # ── Private chats ─────────────────────────────────────────────────────────
     if not urls:
-        await update.message.reply_text(t(user.id, "no_url", user.language_code))
+        await message.reply_text(t(user.id, "no_url", user.language_code))
         return
 
     url = urls[0]
     if not is_supported_url(url):
-        await update.message.reply_text(t(user.id, "unsupported", user.language_code))
+        await message.reply_text(t(user.id, "unsupported", user.language_code))
         return
 
     platform = detect_platform(url)
@@ -801,7 +876,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if platform == "instagram":
         # Detect content type first; show format buttons only for video/reel/story
-        status_msg = await update.message.reply_text(
+        status_msg = await message.reply_text(
             t(user.id, "ig_detecting", user.language_code)
         )
         ig = await detect_instagram_type(url)
@@ -818,7 +893,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "url": url, "user_id": user.id, "platform": "instagram",
                 "ig_type": ig_type, "ig_entries": ig["entries"], "fmt": "video",
             }
-            await process_instagram_media(update.message, user, url, "video", status_msg)
+            await process_instagram_media(message, user, url, "video", status_msg)
             pending_downloads.pop(dl_id, None)
             return
 
@@ -835,7 +910,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # YouTube / TikTok → show format buttons immediately
     pending_downloads[dl_id] = {"url": url, "user_id": user.id, "platform": platform}
-    await update.message.reply_text(
+    await message.reply_text(
         t(user.id, "choose_format", user.language_code),
         reply_markup=format_keyboard(user.id, dl_id),
     )
