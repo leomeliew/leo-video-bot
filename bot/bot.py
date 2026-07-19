@@ -108,6 +108,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Downloading album ({count} items)...",
         "ig_sending_photo": "📤 Sending photo...",
         "ig_sending_album": "📤 Sending album...",
+        "ig_story": "📖 Downloading story...",
         "cookie_send_file": "📎 Send cookies.txt as a document.",
         "cookie_updated": "✅ Cookie yangilandi!",
         "cookie_not_admin": "⛔ You are not authorized to use this command.",
@@ -155,6 +156,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Скачиваю альбом ({count} элементов)...",
         "ig_sending_photo": "📤 Отправляю фото...",
         "ig_sending_album": "📤 Отправляю альбом...",
+        "ig_story": "📖 Скачиваю историю...",
         "cookie_send_file": "📎 Отправьте cookies.txt файл как документ.",
         "cookie_updated": "✅ Cookie yangilandi!",
         "cookie_not_admin": "⛔ У вас нет прав для этой команды.",
@@ -202,6 +204,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "ig_carousel": "🖼 Albom yuklanmoqda ({count} element)...",
         "ig_sending_photo": "📤 Rasm yuborilmoqda...",
         "ig_sending_album": "📤 Albom yuborilmoqda...",
+        "ig_story": "📖 Hikoya yuklanmoqda...",
         "cookie_send_file": "📎 cookies.txt faylini dokument sifatida yuboring.",
         "cookie_updated": "✅ Cookie yangilandi!",
         "cookie_not_admin": "⛔ Siz bu buyruqdan foydalana olmaysiz.",
@@ -481,8 +484,10 @@ async def detect_instagram_type(url: str) -> dict:
     if info is None:
         return {"type": "unknown", "entries": [], "error": "error_instagram"}
 
-    # Story URLs always treated as story
+    # Story URLs: photo stories go to photo path, video stories stay as story
     if "/stories/" in url:
+        if _is_photo_entry(info):
+            return {"type": "photo", "entries": [info], "error": None}
         return {"type": "story", "entries": [info], "error": None}
 
     # Reel URLs always treated as video reel
@@ -608,16 +613,22 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                     await status_msg.edit_text(t(user.id, "ig_photo"))
 
                 photos = await _download_ig_photos(url, tmpdir)
+                # Also collect any video files (mixed carousel items)
+                videos = sorted(
+                    [str(f) for f in Path(tmpdir).iterdir() if f.suffix.lower() in VIDEO_EXTS],
+                    key=lambda p: Path(p).name,
+                )
 
-                if not photos:
+                if not photos and not videos:
                     await status_msg.edit_text(t(user.id, "error_instagram"))
                     return
 
-                if len(photos) == 1:
+                # Send images
+                if len(photos) == 1 and not videos:
                     await status_msg.edit_text(t(user.id, "ig_sending_photo"))
                     with open(photos[0], "rb") as f:
                         await message.reply_photo(photo=f, read_timeout=60, write_timeout=60)
-                else:
+                elif photos:
                     await status_msg.edit_text(t(user.id, "ig_sending_album"))
                     BATCH = 10
                     for i in range(0, len(photos), BATCH):
@@ -631,6 +642,17 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                         finally:
                             for fh in handles:
                                 fh.close()
+
+                # Send any video items from the carousel
+                for vid_path in videos:
+                    vid_size = Path(vid_path).stat().st_size
+                    if vid_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                        continue
+                    await status_msg.edit_text(t(user.id, "sending"))
+                    with open(vid_path, "rb") as f:
+                        await message.reply_video(
+                            video=f, supports_streaming=True, read_timeout=120, write_timeout=120
+                        )
 
                 await status_msg.edit_text(t(user.id, "done"))
                 return
@@ -663,8 +685,9 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 await status_msg.edit_text(t(user.id, "done"))
                 return
 
-            # Default: download video
-            await status_msg.edit_text(t(user.id, "downloading"))
+            # Default: download video/reel/story
+            status_key = "ig_story" if ig_type == "story" else "downloading"
+            await status_msg.edit_text(t(user.id, status_key))
             filepath, _ = await _download_ig_video(url, tmpdir)
 
             if not filepath or not Path(filepath).exists():
@@ -685,10 +708,15 @@ async def process_instagram_media(message, user, url: str, fmt: str, status_msg)
                 return
 
             await status_msg.edit_text(t(user.id, "sending"))
+            file_ext = Path(filepath).suffix.lower()
             with open(filepath, "rb") as f:
-                await message.reply_video(
-                    video=f, supports_streaming=True, read_timeout=120, write_timeout=120
-                )
+                if file_ext in IMAGE_EXTS:
+                    # Story or post that resolved to an image (not a video)
+                    await message.reply_photo(photo=f, read_timeout=60, write_timeout=60)
+                else:
+                    await message.reply_video(
+                        video=f, supports_streaming=True, read_timeout=120, write_timeout=120
+                    )
             await status_msg.edit_text(t(user.id, "done"))
 
     except yt_dlp.utils.DownloadError as e:
